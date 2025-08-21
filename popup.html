@@ -1,40 +1,174 @@
-{
-  "manifest_version": 3,
-  "name": "Reddit Topic Summarizer",
-  "version": "1.0",
-  "description": "AI-powered topic modeling and summarization for Reddit posts",
-  "permissions": [
-    "activeTab",
-    "storage",
-    "https://api.openai.com/*",
-    "https://reddit.com/*",
-    "https://*.reddit.com/*"
-  ],
-  "host_permissions": [
-    "https://reddit.com/*",
-    "https://*.reddit.com/*"
-  ],
-  "background": {
-    "service_worker": "background.js"
-  },
-  "content_scripts": [
-    {
-      "matches": [
-        "https://reddit.com/r/*/comments/*",
-        "https://*.reddit.com/r/*/comments/*"
-      ],
-      "js": ["content.js"],
-      "css": ["content.css"]
-    }
-  ],
-  "action": {
-    "default_popup": "popup.html",
-    "default_title": "Reddit Topic Summarizer"
-  },
-  "icons": {
-    "16": "icons/icon16.png",
-    "32": "icons/icon32.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
-  }
-}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body {
+            width: 400px;
+            min-height: 300px;
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 600;
+        }
+        
+        .header p {
+            margin: 5px 0 0 0;
+            opacity: 0.8;
+            font-size: 12px;
+        }
+        
+        .content {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            margin-bottom: 15px;
+        }
+        
+        .api-setup {
+            margin-bottom: 20px;
+        }
+        
+        .api-setup label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .api-setup input {
+            width: 100%;
+            padding: 10px;
+            border: none;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        
+        .api-setup input::placeholder {
+            color: #666;
+        }
+        
+        .button {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            background: #ff4500;
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 10px;
+        }
+        
+        .button:hover {
+            background: #e63e00;
+            transform: translateY(-1px);
+        }
+        
+        .button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status {
+            text-align: center;
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        
+        .status.loading {
+            background: rgba(255, 193, 7, 0.2);
+            color: #ffc107;
+        }
+        
+        .status.success {
+            background: rgba(40, 167, 69, 0.2);
+            color: #28a745;
+        }
+        
+        .status.error {
+            background: rgba(220, 53, 69, 0.2);
+            color: #dc3545;
+        }
+        
+        .summary-container {
+            max-height: 200px;
+            overflow-y: auto;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+        
+        .summary-text {
+            line-height: 1.6;
+            font-size: 14px;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .reddit-info {
+            font-size: 12px;
+            opacity: 0.7;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🧠 Reddit Topic Summarizer</h1>
+        <p>AI-powered discussion analysis</p>
+    </div>
+    
+    <div class="content">
+        <div class="api-setup">
+            <label for="apiKey">OpenAI API Key:</label>
+            <input type="password" id="apiKey" placeholder="sk-..." />
+        </div>
+        
+        <div class="reddit-info" id="redditInfo">
+            <span id="postTitle">Navigate to a Reddit post to analyze</span>
+        </div>
+        
+        <button class="button" id="analyzeBtn">
+            🔍 Analyze Discussion
+        </button>
+        
+        <button class="button hidden" id="viewSummaryBtn">
+            📊 View Summary
+        </button>
+    </div>
+    
+    <div class="status hidden" id="status"></div>
+    
+    <div class="summary-container hidden" id="summaryContainer">
+        <div class="summary-text" id="summaryText"></div>
+    </div>
+    
+    <script src="popup.js"></script>
+</body>
+</html>

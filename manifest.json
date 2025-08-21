@@ -5,14 +5,12 @@
   "description": "AI-powered topic modeling and summarization for Reddit posts",
   "permissions": [
     "activeTab",
-    "storage",
-    "https://api.openai.com/*",
-    "https://reddit.com/*",
-    "https://*.reddit.com/*"
+    "storage"
   ],
   "host_permissions": [
     "https://reddit.com/*",
-    "https://*.reddit.com/*"
+    "https://*.reddit.com/*",
+    "https://api.openai.com/*"
   ],
   "background": {
     "service_worker": "background.js"
