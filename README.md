@@ -2,6 +2,9 @@
 
 An AI-powered Chrome extension that analyzes Reddit discussions and provides intelligent topic summaries using advanced NLP techniques.
 
+![Screen-Recording-2025-08-27-at-4 43 04 PM](https://github.com/user-attachments/assets/67585fc8-8aeb-4525-b0a8-07c17c48a33f)
+
+
 ## 🚀 Features
 
 - **Intelligent Topic Modeling**: Analyzes Reddit comments using keyword frequency and co-occurrence
@@ -96,6 +99,7 @@ You can create simple colored squares with "🧠" emoji or use any image editor.
    - Click "📊 View Summary" when analysis completes
    - Review AI-generated summary and key topics
    - Results are cached for each post
+  
 
 ## 🛠️ Technical Details
 
