@@ -2,24 +2,46 @@
 const BERTOPIC_API_URL = 'http://localhost:5001';  // Using port 5001 to avoid conflicts
 
 // Handle messages from popup
+// Handle messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'analyzePost') {
+        // Store the sendResponse function
+        const asyncResponse = sendResponse;
+
         analyzeRedditPostWithBERTopic(request.url, request.apiKey)
-            .then(result => sendResponse(result))
+            .then(result => {
+                asyncResponse({ success: true, data: result });
+            })
             .catch(error => {
                 console.error('Error in analyzePost:', error);
-                sendResponse({ success: false, error: error.message });
+                asyncResponse({
+                    success: false,
+                    error: error.message || 'Failed to analyze post'
+                });
             });
-        return true; // Keep the message channel open for async response
-    } else if (request.action === 'getPostInfo') {
-        getPostInfo(request.url)
-            .then(info => sendResponse(info))
-            .catch(error => {
-                console.error('Error getting post info:', error);
-                sendResponse({ error: error.message });
-            });
+
         return true; // Keep the message channel open for async response
     }
+    else if (request.action === 'getPostInfo') {
+        // Store the sendResponse function
+        const asyncResponse = sendResponse;
+
+        getPostInfo(request.url)
+            .then(info => {
+                asyncResponse({ success: true, ...info });
+            })
+            .catch(error => {
+                console.error('Error getting post info:', error);
+                asyncResponse({
+                    success: false,
+                    error: error.message || 'Failed to get post info'
+                });
+            });
+
+        return true; // Keep the message channel open for async response
+    }
+    // Add a default return for other actions
+    return false;
 });
 
 async function getPostInfo(redditUrl) {
@@ -263,15 +285,19 @@ function formatAnalysisResult(data, postData) {
 
 // Helper function to send status updates
 function sendStatusUpdate(message, progress, isComplete = false, isError = false) {
-    chrome.runtime.sendMessage({
-        action: 'updateStatus',
-        status: String(message || ''),
-        progress: typeof progress === 'number' ? Math.max(0, Math.min(100, progress)) : 0,
-        isComplete: Boolean(isComplete),
-        isError: Boolean(isError)
-    }).catch(error => {
-        console.warn('Failed to send status update:', error);
-    });
+    try {
+        chrome.runtime.sendMessage({
+            action: 'updateStatus',
+            status: String(message || ''),
+            progress: typeof progress === 'number' ? Math.max(0, Math.min(100, progress)) : 0,
+            isComplete: Boolean(isComplete),
+            isError: Boolean(isError)
+        }).catch(error => {
+            console.warn('Failed to send status update:', error);
+        });
+    } catch (e) {
+        console.error('Error in sendStatusUpdate:', e);
+    }
 }
 
 // Helper function to send notifications

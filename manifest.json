@@ -9,11 +9,12 @@
     "scripting"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'"
+    "extension_pages": "script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'"
   },
   "web_accessible_resources": [
     {
       "resources": [
+        "content.css",
         "bootstrap-5.1.3-dist/css/bootstrap.min.css",
         "bootstrap-5.1.3-dist/js/bootstrap.bundle.min.js"
       ],
@@ -22,7 +23,8 @@
   ],
   "host_permissions": [
     "https://*.reddit.com/*",
-    "http://localhost:5000/*"
+    "http://localhost:5000/*",
+    "http://localhost:5001/*"
   ],
   "action": {
     "default_popup": "popup.html",
