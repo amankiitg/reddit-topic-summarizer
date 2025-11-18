@@ -1,62 +1,76 @@
 # Reddit Topic Summarizer Chrome Extension
 
-An AI-powered Chrome extension that analyzes Reddit discussions and provides intelligent topic summaries using advanced NLP techniques.
+An AI-powered Chrome extension that analyzes Reddit discussions and provides intelligent topic modeling and summarization using BERTopic and OpenAI.
 
 ## 🚀 Features
 
-- **Intelligent Topic Modeling**: Analyzes Reddit comments using keyword frequency and co-occurrence
-- **AI-Powered Summaries**: Uses OpenAI GPT-3.5 to generate concise discussion summaries
-- **Real-time Analysis**: Works on any Reddit post page
-- **Clean Interface**: Modern, intuitive popup design
-- **Secure**: API keys stored locally in browser
+- **Advanced Topic Modeling**: Utilizes BERTopic for sophisticated topic identification and clustering
+- **AI-Powered Summaries**: Generates concise summaries of Reddit discussions using OpenAI
+- **Real-time Progress Tracking**: Shows analysis progress with percentage updates
+- **Modern UI**: Clean, responsive interface built with Bootstrap 5
+- **Privacy-Focused**: All processing happens on your local machine or specified server
+
+## ⏳ Analysis Time
+
+The analysis time varies based on:
+- Number of comments (typically 30 seconds to 5 minutes)
+- Complexity of the discussion
+- Server resources and model configuration
+
+**Note**: For posts with many comments (100+), the analysis might take several minutes. The extension shows progress updates during this time.
 
 ## 📋 Prerequisites
 
 1. **OpenAI API Key**: Get one from [OpenAI Platform](https://platform.openai.com/api-keys)
-2. **Chrome Browser**: Version 88 or higher
-3. **Reddit Access**: Works on reddit.com and old.reddit.com
+2. **Python 3.8+**: Required for the backend server
+3. **Chrome Browser**: Version 88 or higher
+4. **Reddit Access**: Works on reddit.com and old.reddit.com
 
 ## 📁 File Structure
 
 ```
 reddit-topic-summarizer/
+├── bertopic_api.py         # Backend server for topic modeling
+├── background.js           # Background service worker
+├── content.js              # Reddit page integration
+├── content.css             # Content styles
+├── icons/                  # Extension icons
+│   ├── icon16.png
+│   ├── icon48.png
+│   └── icon128.png
 ├── manifest.json           # Extension configuration
 ├── popup.html              # Main interface
 ├── popup.js                # Popup logic
-├── background.js           # Background service worker
-├── content.js              # Reddit page integration
-├── content.css             # Content script styles
-├── icons/                  # Extension icons
-│   ├── icon16.png
-│   ├── icon32.png
-│   ├── icon48.png
-│   └── icon128.png
+├── requirements.txt        # Python dependencies
 └── README.md              # This file
 ```
 
-## 🔧 Installation Steps
+## 🛠️ Setup
 
-### Method 1: Load Unpacked Extension (Development)
+### 1. Install Dependencies
 
-1. **Download/Create the files**:
-   - Create a new folder called `reddit-topic-summarizer`
-   - Save all the provided files in this folder
-   - Create an `icons` folder and add extension icons (see Icons section below)
+```bash
+# Install Python dependencies
+pip install -r requirements.txt
+```
 
-2. **Open Chrome Extensions**:
-   - Go to `chrome://extensions/` in your Chrome browser
-   - Enable "Developer mode" (toggle in top-right corner)
+### 2. Start the Backend Server
 
-3. **Load the extension**:
-   - Click "Load unpacked"
-   - Select the `reddit-topic-summarizer` folder
-   - The extension should appear in your extensions list
+```bash
+python bertopic_api.py
+```
 
-4. **Pin the extension**:
-   - Click the extensions icon (puzzle piece) in Chrome toolbar
-   - Pin "Reddit Topic Summarizer" for easy access
+### 3. Load the Chrome Extension
 
-### Method 2: Create Icons
+1. Open Chrome and go to `chrome://extensions/`
+2. Enable "Developer mode" (toggle in top-right corner)
+3. Click "Load unpacked" and select the extension directory
+4. Pin the extension for easy access
+
+### 4. Configure Extension
+
+- Set your OpenAI API key in the extension popup
+- Configure the backend URL in `background.js` if not using default (`http://localhost:5001`)
 
 Create simple 16x16, 32x32, 48x48, and 128x128 pixel PNG icons or use these placeholder dimensions:
 
@@ -67,51 +81,41 @@ Create simple 16x16, 32x32, 48x48, and 128x128 pixel PNG icons or use these plac
 
 You can create simple colored squares with "🧠" emoji or use any image editor.
 
-## 🔑 Setup & Usage
+## 🧩 How It Works
 
-### Initial Setup
+1. **Data Collection**:
+   - Scrapes Reddit post and comments
+   - Cleans and preprocesses the text
 
-1. **Get OpenAI API Key**:
-   - Visit [OpenAI Platform](https://platform.openai.com/api-keys)
-   - Create an account and generate an API key
-   - Copy the key (starts with `sk-`)
+2. **Topic Modeling**:
+   - Uses BERTopic to identify topics in the comments
+   - Generates topic labels and representative words
+   - Handles large comment threads efficiently
 
-2. **Configure Extension**:
-   - Click the extension icon in Chrome toolbar
-   - Paste your OpenAI API key in the input field
-   - Key is automatically saved for future use
+3. **Summarization**:
+   - Creates a summary of the overall discussion
+   - Uses OpenAI for coherent, context-aware summaries
+   - Maintains key discussion points and themes
 
-### Using the Extension
+4. **Results Display**:
+   - Shows topics with representative comments
+   - Displays a comprehensive summary
+   - Provides analysis statistics and metrics
 
-1. **Navigate to Reddit Post**:
-   - Go to any Reddit post (e.g., `reddit.com/r/askreddit/comments/...`)
-   - The extension will detect you're on a Reddit post page
+## ⚙️ Configuration
 
-2. **Analyze Discussion**:
-   - Click the extension icon
-   - Click "🔍 Analyze Discussion" button
-   - Wait 1-2 minutes for analysis (depends on comment count)
+### Backend (`bertopic_api.py`)
 
-3. **View Results**:
-   - Click "📊 View Summary" when analysis completes
-   - Review AI-generated summary and key topics
-   - Results are cached for each post
+- `EMBEDDING_MODEL`: Choose between 'all-MiniLM-L6-v2' (faster) or 'all-mpnet-base-v2' (more accurate)
+- `OPENAI_API_KEY`: Your OpenAI API key for enhanced summarization
+- `PORT`: Server port (default: 5001)
+- `BATCH_SIZE`: Number of comments to process at once (adjust based on available RAM)
 
-## 🛠️ Technical Details
+### Extension (`background.js`)
 
-### How It Works
-
-1. **Data Extraction**: Uses Reddit's JSON API to fetch post and comment data
-2. **Text Processing**: Cleans and filters comments based on score and length
-3. **Topic Modeling**: Performs keyword frequency analysis and co-occurrence grouping
-4. **AI Summary**: Sends topics to OpenAI API for intelligent summarization
-5. **Caching**: Stores results locally to avoid re-analysis
-
-### API Usage
-
-- **Reddit API**: Public JSON endpoints (no authentication required)
-- **OpenAI API**: Requires API key, uses GPT-3.5-turbo model
-- **Rate Limits**: Respects both Reddit and OpenAI rate limits
+- `BERTOPIC_API_URL`: Backend server URL (default: `http://localhost:5001`)
+- `MAX_COMMENTS`: Maximum number of comments to process (default: 500)
+- `MIN_COMMENT_LENGTH`: Minimum comment length to include in analysis (default: 20 characters)
 
 ### Privacy & Security
 
@@ -130,32 +134,52 @@ You can create simple colored squares with "🧠" emoji or use any image editor.
 
 ### Common Issues
 
-**Extension not detecting Reddit post:**
-- Ensure URL contains `/r/[subreddit]/comments/`
-- Refresh the page and try again
-- Check that you're not on Reddit homepage
+1. **Server Connection Failed**:
+   - Ensure the backend server is running (`python bertopic_api.py`)
+   - Check if the port in the extension matches the server port (default: 5001)
+   - Verify CORS settings in the backend
 
-**API key not working:**
-- Verify key starts with `sk-`
-- Check OpenAI account has credits
-- Ensure key has proper permissions
+2. **Long Analysis Time**:
+   - For large threads (>200 comments), analysis may take several minutes
+   - Use a smaller embedding model for faster processing
+   - Check server logs for performance bottlenecks
+   - Consider increasing `BATCH_SIZE` in `bertopic_api.py` if you have sufficient RAM
 
-**Analysis taking too long:**
-- Large posts (500+ comments) may take 2-3 minutes
-- Check internet connection
-- Try refreshing and analyzing again
+3. **API Errors**:
+   - Verify your OpenAI API key is valid and has sufficient credits
+   - Check your API rate limits
+   - Ensure the key has access to the required models
 
-**No summary generated:**
-- Check OpenAI API key and credits
-- Try with a smaller post first
-- Check browser console for errors (F12)
+4. **Memory Issues**:
+   - For large posts, the backend may require significant RAM
+   - Reduce `MAX_COMMENTS` in `background.js` for very large threads
+   - Close other memory-intensive applications
+
+### Performance Tips
+
+- **Optimal Post Size**: 50-300 comments provide the best balance of speed and quality
+- **Model Selection**:
+  - `all-MiniLM-L6-v2`: Faster, lower resource usage
+  - `all-mpnet-base-v2`: More accurate, higher resource usage
+- **Hardware**:
+  - 8GB+ RAM recommended for larger analyses
+  - SSD storage improves model loading times
+
+### Expected Performance
+
+| Comment Count | Expected Time | Notes                             |
+|---------------|---------------|-----------------------------------|
+| < 50          | 30-60 sec     | Quick analysis                    |
+| 50-200        | 1-3 min       | Good balance of speed and quality |
+| 200-500       | 3-10 min      | Consider reducing comment count   |
+| 500+          | 10+ min       | May require optimization          |
 
 ### Error Messages
 
-- `"Please enter your OpenAI API key"` → Add API key in extension popup
-- `"Please navigate to a Reddit post"` → Go to a Reddit post page
-- `"Failed to fetch Reddit data"` → Check internet connection, try different post
-- `"OpenAI API error"` → Check API key and OpenAI account status
+- `"Server connection failed"` → Check if backend server is running
+- `"Invalid API response"` → Check server logs for details
+- `"Analysis timed out"` → Try with fewer comments or better hardware
+- `"Memory allocation failed"` → Reduce batch size or comment count
 
 ## 🔄 Updates & Maintenance
 
@@ -172,21 +196,47 @@ You can create simple colored squares with "🧠" emoji or use any image editor.
 - Clear cache: Go to `chrome://extensions/` → Extension details → Storage
 - API keys persist until manually changed
 
-## 📊 Performance Tips
+## 📊 Performance Optimization
 
-- **Best Results**: Posts with 20-200 comments work best
-- **Speed**: Smaller posts analyze faster
-- **Quality**: Higher-scored comments produce better topics
-- **Cost**: Each analysis uses ~$0.01-0.05 in OpenAI credits
+1. **For Faster Analysis**:
+   - Use `all-MiniLM-L6-v2` embedding model
+   - Reduce `MAX_COMMENTS` in `background.js`
+   - Decrease `BATCH_SIZE` in `bertopic_api.py` for low-memory systems
+
+2. **For Better Accuracy**:
+   - Use `all-mpnet-base-v2` embedding model
+   - Increase `BATCH_SIZE` for more context
+   - Process more comments (up to 1000 with sufficient RAM)
+
+3. **Resource Management**:
+   - Monitor memory usage during analysis
+   - Close other memory-intensive applications
+   - Consider using a machine with more RAM for large analyses
 
 ## 🤝 Contributing
 
-To modify or improve the extension:
+1. **Development Setup**:
+   ```bash
+   # Clone the repository
+   git clone [your-repo-url]
+   cd reddit-topic-summarizer
+   
+   # Set up Python virtual environment
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
 
-1. Edit the relevant files
-2. Reload extension in `chrome://extensions/`
-3. Test on various Reddit posts
-4. Check browser console for errors
+2. **Making Changes**:
+   - Follow the existing code style
+   - Add comments for complex logic
+   - Test with various Reddit posts
+   - Check browser console and server logs
+
+3. **Submitting Changes**:
+   - Create a new branch for your feature/fix
+   - Write clear commit messages
+   - Open a pull request with a detailed description
 
 ## 📝 License
 
