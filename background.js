@@ -1,11 +1,10 @@
+// background.js
 // Configuration
-const BERTOPIC_API_URL = 'http://localhost:5001';  // Using port 5001 to avoid conflicts
+const BERTOPIC_API_URL = 'http://localhost:5001'; // Using port 5001 to avoid conflicts
 
-// Handle messages from popup
 // Handle messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'analyzePost') {
-        // Store the sendResponse function
         const asyncResponse = sendResponse;
 
         analyzeRedditPostWithBERTopic(request.url, request.apiKey)
@@ -21,9 +20,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             });
 
         return true; // Keep the message channel open for async response
-    }
-    else if (request.action === 'getPostInfo') {
-        // Store the sendResponse function
+    } else if (request.action === 'getPostInfo') {
         const asyncResponse = sendResponse;
 
         getPostInfo(request.url)
@@ -40,45 +37,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         return true; // Keep the message channel open for async response
     }
-    // Add a default return for other actions
     return false;
 });
 
-async function getPostInfo(redditUrl) {
-    try {
-        const postData = await scrapeRedditPost(redditUrl);
-        return {
-            success: true,
-            title: postData.title,
-            commentCount: postData.comments.length
-        };
-    } catch (error) {
-        console.error('Error getting post info:', error);
-        return { success: false, title: null, commentCount: 0 };
-    }
-}
-
 async function analyzeRedditPostWithBERTopic(redditUrl, apiKey) {
-    // Send initial status update
     sendStatusUpdate('Scraping Reddit post...', 10);
 
     try {
-        // Scrape the post and comments
         const postData = await scrapeRedditPost(redditUrl);
 
         if (!postData || !postData.comments || postData.comments.length === 0) {
             throw new Error('No comments found to analyze');
         }
 
-        // Show warning if fewer than 10 comments
         if (postData.comments.length < 10) {
             sendNotification('warning', 'Fewer than 10 comments found. Analysis may be less accurate.');
         }
 
-        // Update status before API call
         sendStatusUpdate(`Analyzing ${postData.comments.length} comments...`, 20);
 
-        // Call the BERTopic API with progress tracking
         const analysis = await callBERTopicAPI({
             url: redditUrl,
             title: postData.title,
@@ -86,7 +63,6 @@ async function analyzeRedditPostWithBERTopic(redditUrl, apiKey) {
             openai_api_key: apiKey
         });
 
-        // Send completion message
         sendStatusUpdate('Analysis complete!', 100, true);
 
         return {
@@ -105,6 +81,7 @@ async function analyzeRedditPostWithBERTopic(redditUrl, apiKey) {
 async function callBERTopicAPI(postData) {
     return new Promise((resolve, reject) => {
         console.log('Sending request to BERTopic API...');
+        let finalHandled = false; // Guard to avoid processing final result multiple times
 
         fetch(`${BERTOPIC_API_URL}/analyze`, {
             method: 'POST',
@@ -125,7 +102,6 @@ async function callBERTopicAPI(postData) {
                 });
             }
 
-            // Handle the streaming response
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
@@ -138,11 +114,9 @@ async function callBERTopicAPI(postData) {
                     return;
                 }
 
-                // Decode the chunk of data
                 const chunk = decoder.decode(value, { stream: true });
                 buffer += chunk;
 
-                // Process complete JSON objects from the buffer
                 let newlineIndex;
                 while ((newlineIndex = buffer.indexOf('\n\n')) !== -1) {
                     const line = buffer.substring(0, newlineIndex).trim();
@@ -153,86 +127,106 @@ async function callBERTopicAPI(postData) {
                     }
                 }
 
-                // Continue reading
                 return reader.read().then(processText);
             }
 
             function processChunk(chunk) {
-            try {
-                console.log('Processing chunk:', chunk);
-                let data;
-
                 try {
-                    // First, ensure the chunk is a string
-                    const chunkString = String(chunk || '').trim();
-                    if (!chunkString) {
-                        throw new Error('Empty chunk received');
-                    }
+                    console.log('Processing chunk:', chunk);
+                    let data;
 
-                    data = JSON.parse(chunkString);
-                } catch (parseError) {
-                    console.error('Failed to parse JSON:', parseError);
-                    console.error('Problematic chunk content:', chunk);
-                    throw new Error(`Invalid JSON received: ${parseError.message}`);
-                }
-
-                console.log('Parsed data:', data);
-
-                // Validate the basic structure
-                if (!data || typeof data !== 'object') {
-                    throw new Error('Invalid data format: expected an object');
-                }
-
-                // Ensure status is a string
-                const status = String(data.status || '').toLowerCase();
-
-                if (status === 'progress') {
-                    // Handle progress updates
-                    const message = String(data.message || 'Processing...');
-                    const progress = typeof data.progress === 'number'
-                        ? Math.max(0, Math.min(100, data.progress))
-                        : 0;
-
-                    console.log(`Progress update: ${message} (${progress}%)`);
-                    sendStatusUpdate(message, progress);
-
-                } else if (status === 'success') {
-                    // Final result
-                    console.log('Success response received, formatting result...');
                     try {
-                        if (!data.data || typeof data.data !== 'object') {
-                            throw new Error('Invalid data format in success response');
+                        const chunkString = String(chunk || '').trim();
+                        if (!chunkString) {
+                            throw new Error('Empty chunk received');
                         }
 
-                        const result = formatAnalysisResult(data.data, postData);
-                        console.log('Formatted result:', result);
-                        resolve(result);
-                    } catch (formatError) {
-                        console.error('Error formatting analysis result:', formatError);
-                        console.error('Problematic data:', data.data);
-                        throw new Error(`Failed to format analysis result: ${formatError.message}`);
+                        data = JSON.parse(chunkString);
+                    } catch (parseError) {
+                        console.error('Failed to parse JSON:', parseError);
+                        console.error('Problematic chunk content:', chunk);
+                        throw new Error(`Invalid JSON received: ${parseError.message}`);
                     }
 
-                } else if (status === 'error') {
-                    // Error from server
-                    const errorMessage = String(data.error || 'Unknown server error');
-                    console.error('Server error response:', errorMessage);
-                    reject(new Error(errorMessage));
+                    console.log('Parsed data:', data);
 
-                } else {
-                    const errorMessage = `Unexpected response status: ${status}`;
-                    console.warn(errorMessage);
-                    reject(new Error(errorMessage));
+                    if (!data || typeof data !== 'object') {
+                        throw new Error('Invalid data format: expected an object');
+                    }
+
+                    const status = String(data.status || '').toLowerCase();
+
+                    if (status === 'progress') {
+                        const message = String(data.message || 'Processing...');
+                        const progress = typeof data.progress === 'number'
+                            ? Math.max(0, Math.min(100, data.progress))
+                            : 0;
+
+                        console.log(`Progress update: ${message} (${progress}%)`);
+                        sendStatusUpdate(message, progress);
+
+                    } else if (status === 'success' || status === 'complete') {
+                        if (finalHandled) {
+                            console.warn('Final result already handled, ignoring duplicate final chunk.');
+                            return;
+                        }
+                        finalHandled = true;
+
+                        console.log('Final response received, raw data:', data);
+                        // Log data.summary explicitly for debugging
+                        console.log('Final data.summary:', data.summary);
+
+                        console.log('Formatting result for UI...');
+                        const result = formatAnalysisResult(data, postData);
+                        console.log('Formatted result object:', result);
+
+                        // Log formatted words for each topic
+                        if (Array.isArray(result.topics)) {
+                            console.log(`Formatted topics count: ${result.topics.length}`);
+                            result.topics.forEach((t, idx) => {
+                                console.log(`Topic \${idx}: id=\${t.id}, label="\${t.label}", words="\${t.words}", count=\${t.count}, percentage=\${t.percentage}`);
+                            });
+                        } else {
+                            console.warn('Result.topics is not an array:', result.topics);
+                        }
+
+                        if (!result.topics || result.topics.length === 0) {
+                            console.warn('No topics identified in the analysis result.');
+                            sendNotification('info', 'No topics identified. Try analyzing a different post.');
+                        }
+
+                        resolve(result);
+
+                    } else if (status === 'error') {
+                        if (finalHandled) {
+                            console.warn('Error final chunk received after finalHandled; ignoring.');
+                            return;
+                        }
+                        finalHandled = true;
+
+                        const errorMessage = String(data.error || 'Unknown server error');
+                        console.error('Server error response:', errorMessage);
+                        reject(new Error(errorMessage));
+
+                    } else {
+                        const errorMessage = `Unexpected response status: ${status}`;
+                        console.warn(errorMessage);
+                        if (!finalHandled) {
+                            finalHandled = true;
+                            reject(new Error(errorMessage));
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error in processChunk:', e);
+                    console.error('Original chunk that caused the error:', chunk);
+                    const errorMessage = e instanceof Error ? e.message : 'Unknown error processing server response';
+                    if (!finalHandled) {
+                        finalHandled = true;
+                        reject(new Error(`Failed to process server response: ${errorMessage}`));
+                    }
                 }
-            } catch (e) {
-                console.error('Error in processChunk:', e);
-                console.error('Original chunk that caused the error:', chunk);
-                const errorMessage = e instanceof Error ? e.message : 'Unknown error processing server response';
-                reject(new Error(`Failed to process server response: ${errorMessage}`));
             }
-        }
 
-            // Start reading the stream
             return reader.read().then(processText);
         })
         .catch(error => {
@@ -246,36 +240,49 @@ async function callBERTopicAPI(postData) {
     });
 }
 
-// Helper function to format the analysis result
 function formatAnalysisResult(data, postData) {
-    // Ensure topics is an array
     const topics = Array.isArray(data.topics) ? data.topics : [];
 
-    // Helper function to safely format words
+    if (topics.length === 0) {
+        console.warn('No topics identified in the analysis result.');
+    }
+
     const formatWords = (words) => {
         if (!words) return '';
         if (Array.isArray(words)) {
-            return words.map(word => {
-                if (word === null || word === undefined) return '';
-                return String(word);
-            }).filter(word => word.trim() !== '').join(' | ');
+            const formatted = words.map(word => String(word || '').trim()).filter(Boolean).join(' | ');
+            // Log each formatted words string for debug
+            console.log('formatWords output for words array:', formatted);
+            return formatted;
         }
-        return String(words || '');
+        const single = String(words || '').trim();
+        console.log('formatWords output for non-array words:', single);
+        return single;
     };
+
+    const formattedTopics = topics.map(topic => {
+        const ft = {
+            id: topic.id || 0,
+            words: formatWords(topic.words),
+            label: topic.label || `Topic ${(topic.id || 0) + 1}`,
+            count: topic.count || 0,
+            percentage: topic.percentage || 0
+        };
+        // Log formatted topic object
+        console.log('Formatted topic:', ft);
+        return ft;
+    });
+
+    // Log data.summary explicitly
+    console.log('formatAnalysisResult - data.summary:', data.summary);
 
     return {
         summary: data.summary || 'No summary available',
-        topics: topics.map(topic => ({
-            id: typeof topic.id === 'number' ? topic.id : 0,
-            words: formatWords(topic.words),
-            label: topic.label || `Topic ${(topic.id || 0) + 1}`,
-            count: typeof topic.count === 'number' ? topic.count : 0,
-            percentage: typeof topic.percentage === 'number' ? topic.percentage : 0
-        })),
+        topics: formattedTopics,
         postInfo: {
             title: postData.title || 'Untitled Post',
             url: postData.url || '',
-            commentCount: Array.isArray(postData.comments) ? postData.comments.length : 0,
+            commentCount: postData.comments?.length || 0,
             topicCount: topics.length
         },
         modelUsed: data.model_used || 'Unknown',
@@ -283,6 +290,20 @@ function formatAnalysisResult(data, postData) {
     };
 }
 
+
+async function getPostInfo(redditUrl) {
+    try {
+        const postData = await scrapeRedditPost(redditUrl);
+        return {
+            success: true,
+            title: postData.title,
+            commentCount: postData.comments.length
+        };
+    } catch (error) {
+        console.error('Error getting post info:', error);
+        return { success: false, title: null, commentCount: 0 };
+    }
+}
 // Helper function to send status updates
 function sendStatusUpdate(message, progress, isComplete = false, isError = false) {
     try {

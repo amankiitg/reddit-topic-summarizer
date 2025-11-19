@@ -6,13 +6,100 @@ from sentence_transformers import SentenceTransformer
 from umap import UMAP
 from hdbscan import HDBSCAN
 from bertopic import BERTopic
-from bertopic.representation import OpenAI as BertopicOpenAI
+# from bertopic.representation import OpenAI as BertopicOpenAI
+from openai_representation import StableOpenAIRepresentation
+
 import logging
 from copy import deepcopy
 from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
 import torch
 import json
 import sys
+
+import re
+
+MIN_LENGTH = 12        # Below this BERTopic breaks
+MAX_LENGTH = 3000      # Prevent oversized OpenAI prompts
+
+def normalize_text(text):
+    """Remove control characters and normalize basic punctuation."""
+    if not isinstance(text, str):
+        return ""
+    # Remove strange control chars
+    text = re.sub(r"[\x00-\x1F\x7F]", " ", text)
+    return text.strip()
+
+def pad_short_text(text):
+    """BERTopic triggers errors with very short documents, so pad them."""
+    if len(text) >= MIN_LENGTH:
+        return text
+    if len(text) == 0:
+        return ""
+    # Pad by repetition to reach safe length
+    needed = MIN_LENGTH - len(text)
+    return text + " " + text[:needed]
+
+def truncate_long_text(text):
+    """Cap document length to keep OpenAI prompt sizes in check."""
+    if len(text) <= MAX_LENGTH:
+        return text
+    return text[:MAX_LENGTH]
+
+
+def clean_comments(comments):
+    """Clean and validate comments for BERTopic processing with detailed logging"""
+    print("\n=== Starting comment cleaning ===")
+    print(f"Initial comments count: {len(comments)}")
+
+    cleaned = []
+    for i, c in enumerate(comments):
+        print(f"\nProcessing comment {i}:")
+        print(f"Original type: {type(c)}, length: {len(str(c)) if c else 0}")
+
+        if not c:
+            print("Skipping empty comment")
+            continue
+
+        # Ensure it's a string
+        text = str(c) if not isinstance(c, str) else c
+        print(f"After string conversion - length: {len(text)}")
+
+        # Normalize and clean the text
+        text = normalize_text(text)
+        print(f"After normalization - length: {len(text)}")
+
+        if not text.strip():
+            print("Skipping empty text after normalization")
+            continue
+
+        # Ensure minimum and maximum length requirements
+        orig_length = len(text)
+        text = pad_short_text(text)
+        if len(text) > orig_length:
+            print(f"Padded text from {orig_length} to {len(text)} characters")
+
+        text = truncate_long_text(text)
+        if len(text) < orig_length:
+            print(f"Truncated text from {orig_length} to {len(text)} characters")
+
+        cleaned.append(text)
+        print(f"Added to cleaned comments. Current count: {len(cleaned)}")
+
+    # Ensure we have at least 3 documents (BERTopic minimum)
+    if len(cleaned) < 3:
+        print(f"\nWarning: Only {len(cleaned)} valid comments found. Adding placeholders.")
+        while len(cleaned) < 3:
+            placeholder = f"placeholder document {len(cleaned)}"
+            print(f"Adding placeholder: {placeholder}")
+            cleaned.append(placeholder)
+
+    print(f"\n=== Finished cleaning ===\nTotal valid comments: {len(cleaned)}")
+    print("Sample of cleaned comments:")
+    for i, c in enumerate(cleaned[:3]):  # Show first 3 samples
+        print(f"{i + 1}. {c[:100]}{'...' if len(c) > 100 else ''}")
+
+    return cleaned
+
 
 # Configure logging
 logging.basicConfig(
@@ -50,20 +137,25 @@ def get_embedding_model():
     return model_cache['embedding']
 
 
+from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
+from sentence_transformers import SentenceTransformer
+
+
+# Update the create_bertopic_model function
 def create_bertopic_model(openai_api_key=None):
     """
-    Create and return a BERTopic model with optional OpenAI representation
+    Create and return a BERTopic model with simplified configuration
     Returns: tuple of (topic_model, embedding_model)
     """
-    # Step 1: Create embedding model
-    embedding_model = get_embedding_model()
+    # Step 1: Create embedding model - using a smaller, faster model
+    embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
-    # Step 2: Reduce dimensionality
-    umap_model = UMAP(n_neighbors=15, n_components=5, min_dist=0.0, metric='cosine', random_state=42)
+    # Step 2: Use PCA for dimensionality reduction (faster than UMAP)
+    umap_model = PCA(n_components=5, random_state=42)
 
-    # Step 3: Cluster reduced embeddings
-    hdbscan_model = HDBSCAN(min_cluster_size=10, metric='euclidean',
-                            cluster_selection_method='eom', prediction_data=True)
+    # Step 3: Use KMeans for clustering (more stable than HDBSCAN)
+    hdbscan_model = KMeans(n_clusters=5, random_state=42, n_init=10)
 
     # Step 4: Create BERTopic model
     topic_model = BERTopic(
@@ -78,46 +170,18 @@ def create_bertopic_model(openai_api_key=None):
     return topic_model, embedding_model
 
 
-def update_topics_with_openai(topic_model, comments, openai_api_key):
-    """Update topic representations using OpenAI"""
-    try:
-        logger.info("Updating topics with OpenAI...")
-        # Create a copy to avoid modifying the original model
-        updated_model = deepcopy(topic_model)
-
-        # Define OpenAI representation model
-        openai_model = BertopicOpenAI(
-            model="gpt-3.5-turbo",
-            delay_in_seconds=2,
-            chat=True,
-            nr_docs=5,
-            doc_length=100,
-            openai_api_key=openai_api_key
-        )
-
-        # Update model with OpenAI representation
-        updated_model.update_topics(
-            comments,
-            representation_model=openai_model
-        )
-        return updated_model, "OpenAI"
-    except Exception as e:
-        logger.error(f"OpenAI update failed: {e}")
-        return topic_model, "Hugging Face (OpenAI failed)"
-
-
+# Update the update_topics_with_huggingface function
 def update_topics_with_huggingface(topic_model, comments):
-    """Update topic representations using Hugging Face model"""
+    """Update topic representations using a simpler Hugging Face model"""
     try:
         logger.info("Updating topics with Hugging Face...")
-        # Create a copy to avoid modifying the original model
         updated_model = deepcopy(topic_model)
 
-        # Use a pre-trained model for representation
+        # Use a simpler, faster model for representation
         representation_model = {
-            "model": "all-MiniLM-L6-v2",
+            "model": "all-MiniLM-L6-v2",  # Same as our embedding model
             "exponent_scale": 0.9,
-            "word_length": 15
+            "word_length": 10  # Shorter word length for faster processing
         }
 
         # Update model with Hugging Face representation
@@ -125,23 +189,86 @@ def update_topics_with_huggingface(topic_model, comments):
             comments,
             representation_model=representation_model
         )
-        return updated_model, "Hugging Face"
+        logger.error(f"Hugging Face Update Done")
+        return updated_model, "Hugging Face (MiniLM)"
     except Exception as e:
         logger.error(f"Hugging Face update failed: {e}")
         return topic_model, "Basic BERTopic (no enhancement)"
 
 
+def update_topics_with_openai(topic_model, comments, openai_api_key):
+    try:
+        logger.info("Updating topics with stable OpenAI model...")
+
+        comments = clean_comments(comments)
+        updated_model = deepcopy(topic_model)
+
+        openai_rep = StableOpenAIRepresentation(
+            api_key=openai_api_key,
+            model="gpt-3.5-turbo",
+            max_len=300,
+            batch_size=8
+        )
+
+        updated_model.update_topics(
+            comments,
+            representation_model=openai_rep
+        )
+
+        return updated_model, "OpenAI"
+
+    except Exception as e:
+        logger.error(f"OpenAI update failed: {e}")
+        logger.info("Falling back to Hugging Face model...")
+        return update_topics_with_huggingface(topic_model, comments)
+
+
+def update_topics_with_huggingface(topic_model, comments):
+    """Update topic representations using a simpler Hugging Face model"""
+    try:
+        logger.info("Updating topics with Hugging Face...")
+        updated_model = deepcopy(topic_model)
+
+        from bertopic.representation import KeyBERTInspired
+
+        representation_model = KeyBERTInspired()
+
+        # Pass documents to update_topics
+        updated_model.update_topics(
+            comments,
+            representation_model=representation_model
+        )
+
+        logger.info("Hugging Face update completed successfully")
+        logger.info(f"Updated model has topics_: {hasattr(updated_model, 'topics_')}")
+        return updated_model, "Hugging Face (KeyBERT)"
+
+    except Exception as e:
+        logger.error(f"Hugging Face update failed: {e}")
+        logger.info("Falling back to basic BERTopic model")
+        return topic_model, "Basic BERTopic (no enhancement)"
+
+
+import openai
+
 def generate_overall_summary(topics, openai_api_key, post_title):
     """Generate an overall summary of the topics using OpenAI"""
     try:
+        logger.info("Entering generate_overall_summary function...")
+        logger.debug(f"Received topics: {topics}")
+        logger.debug(f"Received OpenAI API key: {'Provided' if openai_api_key else 'Not Provided'}")
+        logger.debug(f"Received post title: {post_title}")
+
         if not openai_api_key:
+            logger.warning("No OpenAI API key provided. Skipping summary generation.")
             return None
 
-        # Format topics for the prompt
+        logger.info("Formatting topics for the summary prompt...")
         topics_text = "\n".join([
             f"- {topic['label']} ({topic['percentage']}% of comments): {', '.join(topic['words'])}"
-            for topic in topics[:5]  # Limit to top 5 topics
+            for topic in topics[:5]
         ])
+        logger.debug(f"Formatted topics for prompt:\n{topics_text}")
 
         prompt = f"""Please provide a concise summary of the following Reddit post and its main discussion topics.
 
@@ -152,6 +279,7 @@ Main Discussion Topics:
 
 Summary:"""
 
+        logger.info("Sending request to OpenAI API for summary generation...")
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
@@ -159,14 +287,18 @@ Summary:"""
                 {"role": "user", "content": prompt}
             ],
             max_tokens=300,
-            temperature=0.7,
-            api_key=openai_api_key
+            temperature=0.7
         )
 
-        return response.choices[0].message['content'].strip()
+        summary = response.choices[0].message['content'].strip()
+        logger.info(f"Summary generated successfully. Length: {len(summary)} characters.")
+        return summary
     except Exception as e:
         logger.error(f"Error generating summary: {e}")
         return None
+
+
+
 
 
 @app.route('/health', methods=['GET'])
@@ -231,104 +363,111 @@ def analyze_reddit_post():
 
         def generate_analysis():
             try:
-                # If less than 10 comments, we'll still proceed but with a warning
-                if len(comments) < 10:
-                    yield send_progress_update('Warning: Fewer than 10 comments may result in less accurate analysis',
-                                               20)
-
-                # Step 1: Create BERTopic model
-                yield send_progress_update('Initializing BERTopic model...', 30)
+                yield send_progress_update('Loading models...', 10)
                 topic_model, embedding_model = create_bertopic_model(openai_api_key)
+                logger.info("Models loaded successfully")
 
-                # Step 2: Generate embeddings
-                yield send_progress_update('Generating embeddings...', 50)
+                yield send_progress_update('Embedding comments...', 30)
                 embeddings = embedding_model.encode(comments, show_progress_bar=False)
+                logger.info(f"Embeddings created. Shape: {embeddings.shape}")
 
-                # Step 3: Fit BERTopic model
                 yield send_progress_update('Analyzing topics...', 70)
                 topics, probs = topic_model.fit_transform(comments, embeddings)
+                logger.info(
+                    f"Topic analysis complete. Topics shape: {np.array(topics).shape}, unique topics: {len(np.unique(topics))}")
 
-                # Step 4: Get topic information
                 yield send_progress_update('Processing topic information...', 80)
-                topic_info = topic_model.get_topic_info()
-                num_topics = len(topic_info[topic_info.Topic != -1])
+                logger.info(f"Initial topics type: {type(topics)}, dtype: {getattr(topics, 'dtype', 'N/A')}")
 
-                # Step 5: Update with OpenAI or Hugging Face
                 model_used = "None"
                 if openai_api_key:
-                    yield send_progress_update('Enhancing topics with OpenAI...', 85)
-                    topic_model, model_used = update_topics_with_openai(
-                        topic_model,
-                        comments,
-                        openai_api_key
-                    )
+                    yield send_progress_update('Enhancing with OpenAI...', 85)
+                    topic_model, model_used = update_topics_with_openai(topic_model, comments, openai_api_key)
+                    logger.info(f"OpenAI enhancement complete. Model used: {model_used}")
                 else:
-                    yield send_progress_update('Enhancing topics with Hugging Face...', 85)
+                    yield send_progress_update('Enhancing with Hugging Face...', 85)
                     topic_model, model_used = update_topics_with_huggingface(topic_model, comments)
+                    logger.info(f"Hugging Face enhancement complete. Model used: {model_used}")
 
-                # Step 6: Extract topic information
                 yield send_progress_update('Finalizing results...', 90)
-                topics_list = []
+                logger.info(f"Model has topics_ attribute: {hasattr(topic_model, 'topics_')}")
+
+                if hasattr(topic_model, 'topics_') and topic_model.topics_ is not None:
+                    topics_array = np.array(topic_model.topics_)
+                    logger.info(f"Using model.topics_. Shape: {topics_array.shape}, dtype: {topics_array.dtype}")
+                elif isinstance(topics, (list, np.ndarray)):
+                    topics_array = np.array(topics) if isinstance(topics, list) else topics
+                    logger.info(f"Using original topics. Shape: {topics_array.shape}, dtype: {topics_array.dtype}")
+                else:
+                    logger.error(
+                        f"Unable to extract topics. topics type: {type(topics)}, topics_: {getattr(topic_model, 'topics_', 'N/A')}")
+                    raise ValueError("Failed to extract valid topics array from model")
+
+                logger.info(
+                    f"Topics array validation - dtype: {topics_array.dtype}, ndim: {topics_array.ndim}, shape: {topics_array.shape}")
+
+                if topics_array.dtype == bool or topics_array.ndim == 0:
+                    logger.error(f"Invalid topics_array: dtype={topics_array.dtype}, shape={topics_array.shape}")
+                    raise ValueError("Topics array has invalid dtype or shape")
+
+                logger.info("Topics array validation passed")
                 topic_info = topic_model.get_topic_info()
+                logger.info(f"Retrieved topic info. Total topics: {len(topic_info)}")
+
+                topics_list = []
 
                 for idx, row in topic_info.iterrows():
-                    if row['Topic'] != -1:  # Skip outlier topic
-                        topic_id = row['Topic']
-                        topic_words = topic_model.get_topic(topic_id)
+                    topic_id = int(row['Topic'])
+                    if topic_id == -1:
+                        logger.debug(f"Skipping outlier topic (id: {topic_id})")
+                        continue
+                    words = row['Representation'][:5] if isinstance(row['Representation'], list) else []
 
-                        # Get top 5 words
-                        words = [word for word, score in topic_words[:5]]
-                        scores = [float(score) for word, score in topic_words[:5]]
-
-                        # Get representation (OpenAI label if available)
-                        representation = row.get('Representation', words)
-                        if isinstance(representation, list) and len(representation) > 0:
-                            label = representation[0]
-                        else:
-                            label = ' | '.join(words[:3])
-
-                        topics_list.append({
-                            'id': int(topic_id),
-                            'label': label,
-                            'words': words,
-                            'scores': scores,
-                            'count': int(row['Count']),
-                            'percentage': round(row['Count'] / len(comments) * 100, 1) if comments else 0
-                        })
-
-                # Step 7: Generate overall summary using OpenAI
-                summary = None
-                openai_enhanced = model_used == "OpenAI"
-                if openai_api_key and openai_enhanced:
                     try:
-                        yield send_progress_update('Generating summary...', 95)
-                        summary = generate_overall_summary(topics_list, openai_api_key, post_title)
+                        if isinstance(topics_array, np.ndarray) and topics_array.ndim > 0:
+                            percentage = round((topics_array == topic_id).sum() / len(topics_array) * 100, 2)
+                            logger.debug(f"Topic {topic_id}: calculated percentage {percentage}%")
+                        else:
+                            total_topics = len(topic_info) - 1
+                            percentage = round(100 / total_topics, 2) if total_topics > 0 else 0
+                            logger.debug(f"Topic {topic_id}: using equal distribution {percentage}%")
                     except Exception as e:
-                        logger.warning(f"Summary generation failed: {e}")
-                        yield send_progress_update('Summary generation skipped', 95)
+                        logger.warning(
+                            f"Failed to calculate percentage for topic {topic_id}: {e}. Using equal distribution.")
+                        total_topics = len(topic_info) - 1
+                        percentage = round(100 / total_topics, 2) if total_topics > 0 else 0
 
-                # Step 8: Return results
+                    topics_list.append({
+                        'id': topic_id,
+                        'label': ', '.join(words) if words else f'Topic {topic_id}',
+                        'words': words,
+                        'percentage': percentage
+                    })
+
+                logger.info(f"Topics list created with {len(topics_list)} topics")
+
+                summary = None
+                if openai_api_key:
+                    yield send_progress_update('Generating summary...', 95)
+                    summary = generate_overall_summary(topics_list, openai_api_key, post_title)
+                    logger.info(f"Summary generated: {len(summary) if summary else 0} characters")
+
+                yield send_progress_update('Complete', 100)
+                logger.info("Analysis complete. Sending final result.")
+
                 result = {
-                    'status': 'success',
-                    'data': {
-                        'num_topics': num_topics,
-                        'num_comments': len(comments),
-                        'topics': topics_list,
-                        'summary': summary,
-                        'model_used': model_used,
-                        'openai_enhanced': openai_enhanced,
-                        'post_title': post_title,
-                        'note': 'Using Hugging Face model as fallback' if 'Hugging Face' in model_used else ''
-                    }
+                    'status': 'complete',
+                    'topics': topics_list,
+                    'model_used': model_used,
+                    'summary': summary,
+                    'total_comments': len(comments)
                 }
-                # Ensure final result is properly formatted with double newlines
                 yield json.dumps(result) + '\n\n'
 
             except Exception as e:
                 import traceback
                 error_trace = traceback.format_exc()
                 logger.error(f"Analysis error: {str(e)}\n{error_trace}")
-                # Ensure error is properly formatted with double newlines
                 yield json.dumps({
                     'status': 'error',
                     'error': str(e),
@@ -366,5 +505,5 @@ if __name__ == '__main__':
     # Pre-load models on startup
     logger.info("Starting BERTopic API server...")
     # Initialize models
-    get_embedding_model()
+    # get_embedding_model()
     app.run(host='0.0.0.0', port=5001, debug=True)
